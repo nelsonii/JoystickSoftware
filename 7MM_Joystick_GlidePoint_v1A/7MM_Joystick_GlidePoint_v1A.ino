@@ -1,15 +1,23 @@
 // 7MM_Joystick_GlidePoint_v1A
-// 2022-03-30-A
+// 2022-04-07-A
 
 //=================================================================================
 
 // IMPORTANT: For the GlidePoint device I am using the QT PY (SAMD21) board.
 //            You MUST use the TinyUSB package instead of the usual "joystick.h".
 //                TOOLS >> USB STACK >> TinyUSB must be selected (not "arduino").
-//
-// * This sketch is only valid on boards which have native USB support
-// * and compatibility with Adafruit TinyUSB library. 
-// * For example SAMD21, SAMD51, nRF52840.
+
+// IMPORTANT: The Cirque/Pinnacle/GlidePoint sensor is 3V ONLY. Use a 3V board!!!
+
+// Board: Adafruit QT PY (SAMD21)
+// Optimize: Small (-Os) Standard
+// USB Stack: TinyUSB  <-- Important: Using TinyUSB, not Arduino USB!
+// Debug: Off
+// Port: COMxx (Adafruit QT PY (SAMD21))
+
+// This sketch is only valid on boards which have native USB support
+// and compatibility with Adafruit TinyUSB library. 
+// For example SAMD21, SAMD51, nRF52840.
 
 
 //=================================================================================
@@ -30,6 +38,7 @@ Adafruit_NeoPixel pixels = Adafruit_NeoPixel(1, PIN_NEOPIXEL);
 
 uint32_t red = pixels.Color(255,0,0);
 uint32_t green = pixels.Color(0,255,0);
+uint32_t blue = pixels.Color(0,0,255);
 uint32_t black = pixels.Color(0,0,0);
 
 //=================================================================================
@@ -81,8 +90,9 @@ absData_t touchData;
 int joyMin = -127;
 int joyMax = +127;
 
-int rawHorz, rawVert;
-int mapHorz, mapVert;
+int rawHorz, rawVert; // raw values from sensor
+int lmtHorz, lmtVert; // limited (range checked) value
+int mapHorz, mapVert; // mapped value (limited)
 
 // invert if needed
 bool invHorz = true; 
@@ -104,7 +114,7 @@ void setup() {
   pinMode(DR_PIN, INPUT);
 
   // Startup the NeoPixel
-  pixels.begin(); pixels.clear(); pixels.show();
+  pixels.begin(); pixels.clear(); pixels.setPixelColor(0, red); pixels.show();
   
   // Startup SPI and TrackPoint
   SPI.begin();
@@ -116,8 +126,12 @@ void setup() {
   #endif
 
   // Startup the joystick
+  // IMPORTANT: This will loop until device is mounted.
+  //            So, if you see a RED light, it's powered, but not mounted.
+  //            When the LED goes GREEN, it's mounted.
+  //            When touched (sending data) LED goes BLUE
   usb_hid.begin();
-  while( !TinyUSBDevice.mounted() ) delay(1);
+  while( !TinyUSBDevice.mounted() ) delay(10);
 
 }
 
@@ -134,20 +148,38 @@ void loop() {
     rawHorz = (int) touchData.xValue;
     rawVert = (int) touchData.yValue;
 
+    lmtHorz = rawHorz;
+    lmtVert = rawVert;
+    if (lmtHorz<minHorz) {lmtHorz=minHorz;}
+    if (lmtHorz>maxHorz) {lmtHorz=maxHorz;}
+    if (lmtVert<minVert) {lmtVert=minVert;}
+    if (lmtVert>maxVert) {lmtVert=maxVert;}
+    
+
     // Map values to a range the XAC likes
-    mapHorz = map(rawHorz, minHorz, maxHorz, joyMin, joyMax);
-    mapVert = map(rawVert, minVert, maxVert, joyMin, joyMax);
+    mapHorz = map(lmtHorz, minHorz, maxHorz, joyMin, joyMax);
+    mapVert = map(lmtVert, minVert, maxVert, joyMin, joyMax);
 
     if (debug) {
+      Serial.print(" T: ");
+      Serial.print(touchData.touchDown);
       Serial.print(" X: ");
       Serial.print(touchData.xValue);
       Serial.print(" Y: ");
       Serial.print(touchData.yValue);
       Serial.print(" Z: ");
       Serial.print(touchData.zValue);
-      Serial.print(" H: ");
+      Serial.print(" RH: ");
+      Serial.print(rawHorz);
+      Serial.print(" RV: ");
+      Serial.print(rawVert);
+      Serial.print(" LH: ");
+      Serial.print(lmtHorz);
+      Serial.print(" LV: ");
+      Serial.print(lmtVert);
+      Serial.print(" MH: ");
       Serial.print(mapHorz);
-      Serial.print(" V: ");
+      Serial.print(" MV: ");
       Serial.print(mapVert);
       Serial.println();
     }
@@ -161,10 +193,10 @@ void loop() {
   }//DR_Asserted
 
   if (touchData.touchDown) {
-    pixels.clear(); pixels.setPixelColor(0, green); pixels.show();
+    pixels.clear(); pixels.setPixelColor(0, blue); pixels.show();
   }
   else { 
-    pixels.clear(); pixels.setPixelColor(0, red); pixels.show(); 
+    pixels.clear(); pixels.setPixelColor(0, green); pixels.show(); 
     if ( usb_hid.ready() ) { joystick.x = 0; joystick.y = 0; usb_hid.sendReport(0, &joystick, sizeof(joystick)); }
   }
 
